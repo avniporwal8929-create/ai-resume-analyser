@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#1e3a8a"           # Premium Royal Blue
+backgroundColor = "#f8fafc"       # Soft off-white Slate background
+secondaryBackgroundColor = "#f1f5f9" # Very light blue-gray for sidebar/cards
+textColor = "#0f172a"              # Deep Navy/Slate text for readability
+font = "sans serif"                # Modern sans-serif typography
