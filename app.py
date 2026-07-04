@@ -7,6 +7,11 @@ import io
 import csv
 import re
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (for local development)
+load_dotenv()
+
 
 # Import project modules
 from utils import clean_text, extract_skills, extract_keywords
@@ -265,22 +270,18 @@ if run_analysis:
             st.session_state['scores'] = scores
             st.session_state['resume_text'] = resume_text
             st.session_state['jd_text'] = jd_text
-            
-            # 3. Call Google Gemini API (if key is set in UI or environment)
-            api_key_to_use = os.getenv("GEMINI_API_KEY") or "AIzaSyCRG0240vq0T1KNzcQxIAPtir88OTy2Eys"
-            
+            # 3. Call AI via OpenRouter (key is built into AIRewriter)
             st.session_state['ai_feedback'] = None
             st.session_state['ai_success'] = False
-            
-            if api_key_to_use:
-                with st.spinner("Connecting to Google Gemini API for personalized recommendations..."):
-                    try:
-                        rewriter = AIRewriter(api_key=api_key_to_use)
-                        raw_feedback = rewriter.generate_feedback(resume_text, jd_text)
-                        st.session_state['ai_feedback'] = raw_feedback
-                        st.session_state['ai_success'] = True
-                    except Exception as e:
-                        st.warning(f"⚠️ Google Gemini API call failed: {str(e)}. You can still inspect calculations and keyword counts.")
+
+            with st.spinner("✨ Generating AI-powered resume suggestions..."):
+                try:
+                    rewriter = AIRewriter()
+                    raw_feedback = rewriter.generate_feedback(resume_text, jd_text)
+                    st.session_state['ai_feedback'] = raw_feedback
+                    st.session_state['ai_success'] = True
+                except Exception as e:
+                    st.warning(f"⚠️ AI call failed: {str(e)}. You can still inspect calculations and keyword counts.")
 
 
 # Check if analysis has run and data is saved in session state

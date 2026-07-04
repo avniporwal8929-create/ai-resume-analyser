@@ -1,21 +1,71 @@
-from google import genai
+import requests
 import re
+import os
+
+# Key is loaded from environment variable OPENROUTER_API_KEY
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Free models available on OpenRouter - tried in order
+MODELS_TO_TRY = [
+    "google/gemini-2.0-flash-exp:free",
+    "google/gemini-flash-1.5-8b",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+]
+
 
 class AIRewriter:
     def __init__(self, api_key: str = None):
         """
-        Initializes the GenAI Client.
-        If api_key is provided, it configures it.
-        Otherwise, client will search for GEMINI_API_KEY / GOOGLE_API_KEY environment variables.
+        Initializes the AIRewriter using OpenRouter API.
+        api_key parameter kept for backward compatibility but OpenRouter key is used by default.
         """
-        if api_key:
-            self.client = genai.Client(api_key=api_key)
-        else:
-            self.client = genai.Client()
+        self.api_key = OPENROUTER_API_KEY
+
+    def _call_openrouter(self, prompt: str) -> str:
+        """
+        Sends a prompt to OpenRouter, trying multiple free models until one succeeds.
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://ai-resume-analyser.streamlit.app",
+            "X-Title": "AI Resume Analyser"
+        }
+
+        last_error = None
+        for model in MODELS_TO_TRY:
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}]
+            }
+            try:
+                response = requests.post(
+                    OPENROUTER_BASE_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=60
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"]
+                elif response.status_code in (429, 503):
+                    # Quota/rate-limit — try next model
+                    last_error = f"Model {model} returned {response.status_code}"
+                    continue
+                else:
+                    last_error = f"Model {model} returned {response.status_code}: {response.text}"
+                    break
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        raise Exception(f"All models failed. Last error: {last_error}")
 
     def generate_feedback(self, resume_text: str, jd_text: str) -> str:
         """
-        Sends the Resume and Job Description to the Gemini-2.0-Flash model.
+        Sends the Resume and Job Description to an AI model via OpenRouter.
         Prompts the model to return 5 distinct, numbered headers in markdown format.
         """
         prompt = f"""
@@ -53,23 +103,7 @@ class AIRewriter:
         JOB DESCRIPTION:
         {jd_text}
         """
-
-        # Try models in order — each has its own free quota pool
-        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash']
-        last_error = None
-        for model in models_to_try:
-            try:
-                response = self.client.models.generate_content(
-                    model=model,
-                    contents=prompt
-                )
-                return response.text
-            except Exception as e:
-                last_error = e
-                if '429' not in str(e):
-                    # Non-quota error — don't retry other models
-                    break
-        raise Exception(f"Failed to generate feedback from Gemini API: {str(last_error)}")
+        return self._call_openrouter(prompt)
 
     def rewrite_text(self, text_to_rewrite: str, jd_text: str = "", style: str = "XYZ Formula") -> str:
         """
@@ -95,25 +129,12 @@ class AIRewriter:
         - Provide 2-3 variations of the rewritten text.
         - Do NOT include any introductory or concluding conversational text. Output only the rewritten variations formatted in markdown as a list.
         """
-        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash']
-        last_error = None
-        for model in models_to_try:
-            try:
-                response = self.client.models.generate_content(
-                    model=model,
-                    contents=prompt
-                )
-                return response.text
-            except Exception as e:
-                last_error = e
-                if '429' not in str(e):
-                    break
-        raise Exception(f"Failed to rewrite text using Gemini API: {str(last_error)}")
+        return self._call_openrouter(prompt)
 
 
 def parse_gemini_feedback(feedback_text: str) -> dict:
     """
-    Parses the Markdown response from Gemini into five distinct parts
+    Parses the Markdown response into five distinct parts
     for display in Streamlit tabs or expanders.
     Uses regex splitting based on markdown headers.
     """
