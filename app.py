@@ -281,8 +281,7 @@ if run_analysis:
                         st.session_state['ai_success'] = True
                     except Exception as e:
                         st.warning(f"⚠️ Google Gemini API call failed: {str(e)}. You can still inspect calculations and keyword counts.")
-            else:
-                st.info("💡 Pro-Tip: Supply a Gemini API Key in the sidebar to activate AI resume improvement suggestions.")
+
 
 # Check if analysis has run and data is saved in session state
 if st.session_state.get('analysis_done', False):
@@ -515,20 +514,7 @@ if st.session_state.get('analysis_done', False):
             with st.expander("🚀 5. Career Advice", expanded=False):
                 st.markdown(parsed["career"])
         else:
-            # Informative Call-to-action block for API Key
-            st.info("🗝️ **AI Features are Currently Locked**")
-            st.markdown("""
-            To activate Gemini AI Resume Improvement Recommendations, please:
-            1. **Provide a Gemini API Key** in the sidebar text input field.
-            2. *OR* set the **`GEMINI_API_KEY`** environment variable in your server environment.
-            3. Once provided, click **Analyze Resume** again.
-            
-            **AI Features include:**
-            - Custom professional summaries tailored to the Job Description.
-            - Rewritten, metric-focused bullet points using the XYZ formula.
-            - Expected interview questions and mock answers.
-            - Strategic skill learning maps for the role.
-            """)
+            st.warning("⚠️ AI suggestions could not be generated. Please try running the analysis again.")
             
     # --- TAB 4: EXPORT REPORT ---
     with tab_export:
