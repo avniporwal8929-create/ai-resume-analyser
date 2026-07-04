@@ -2,15 +2,6 @@ import requests
 import re
 import os
 
-def _get_api_key():
-    """Read OpenRouter key from Streamlit secrets (cloud) or .env (local)."""
-    try:
-        import streamlit as st
-        return st.secrets.get("OPENROUTER_API_KEY", os.getenv("OPENROUTER_API_KEY", ""))
-    except Exception:
-        return os.getenv("OPENROUTER_API_KEY", "")
-
-OPENROUTER_API_KEY = _get_api_key()
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Free models available on OpenRouter - tried in order
@@ -26,9 +17,18 @@ class AIRewriter:
     def __init__(self, api_key: str = None):
         """
         Initializes the AIRewriter using OpenRouter API.
-        api_key parameter kept for backward compatibility but OpenRouter key is used by default.
+        Reads the key at runtime so Streamlit secrets are fully loaded.
         """
-        self.api_key = OPENROUTER_API_KEY
+        # Read key at runtime - Streamlit secrets are ready by the time this is called
+        if api_key:
+            self.api_key = api_key
+        else:
+            try:
+                import streamlit as st
+                self.api_key = st.secrets.get("OPENROUTER_API_KEY", "") or os.getenv("OPENROUTER_API_KEY", "")
+            except Exception:
+                self.api_key = os.getenv("OPENROUTER_API_KEY", "")
+
 
     def _call_openrouter(self, prompt: str) -> str:
         """
