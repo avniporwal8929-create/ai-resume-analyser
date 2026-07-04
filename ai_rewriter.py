@@ -64,6 +64,40 @@ class AIRewriter:
         except Exception as e:
             raise Exception(f"Failed to generate feedback from Gemini API: {str(e)}")
 
+    def rewrite_text(self, text_to_rewrite: str, jd_text: str = "", style: str = "XYZ Formula") -> str:
+        """
+        Rewrites a specific bullet point or section of a resume based on the JD and selected style.
+        """
+        prompt = f"""
+        You are an expert resume writer and career coach.
+        Rewrite the following text from a resume to make it more professional, impact-driven, and aligned with the target job requirements.
+        
+        Text to rewrite:
+        "{text_to_rewrite}"
+        
+        Target Job Description / Requirements (if provided):
+        "{jd_text}"
+        
+        Style / Focus:
+        {style}
+        
+        Instructions:
+        - If the style is "XYZ Formula", follow Google's XYZ formula: "Accomplished [X], as measured by [Y], by doing [Z]".
+        - Keep the rewritten version concise (typically 1-2 sentences or bullet points).
+        - Maintain truthfulness but maximize professional impact.
+        - Provide 2-3 variations of the rewritten text.
+        - Do NOT include any introductory or concluding conversational text. Output only the rewritten variations formatted in markdown as a list.
+        """
+        try:
+            response = self.client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
+            return response.text
+        except Exception as e:
+            raise Exception(f"Failed to rewrite text using Gemini API: {str(e)}")
+
+
 def parse_gemini_feedback(feedback_text: str) -> dict:
     """
     Parses the Markdown response from Gemini into five distinct parts

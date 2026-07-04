@@ -138,7 +138,7 @@ def generate_csv_report(scores_dict, matched_skills, missing_skills, ai_feedback
     
     writer.writerow(["1. METRICS & OVERALL SCORES"])
     writer.writerow(["Overall ATS Score", f"{scores_dict['ats_score']}%"])
-    writer.writerow(["Text Compatibility Score (TF-IDF Cosine)", f"{scores_dict['cosine_score']}%"])
+    writer.writerow(["Word Overlap Score", f"{scores_dict['overlap_score']}%"])
     writer.writerow(["Skill Match Score", f"{scores_dict['skill_score']}%"])
     writer.writerow(["Keyword Match Score", f"{scores_dict['keyword_score']}%"])
     writer.writerow(["Resume Grade", scores_dict['grade']])
@@ -193,14 +193,9 @@ uploaded_file = st.sidebar.file_uploader(
     help="Supported formats: PDF, DOCX, TXT. Scanned PDFs are not supported."
 )
 
-# Optional API Key
-st.sidebar.markdown("### 2. Gemini API Key")
-gemini_key = st.sidebar.text_input(
-    "Enter Gemini API Key (Optional)",
-    type="password",
-    placeholder="AI features will activate if provided",
-    help="If left blank, the app will check for GEMINI_API_KEY environment variable. If none is found, AI advice will be bypassed."
-)
+# Gemini API key is provided via environment variable `GEMINI_API_KEY` or a hard‑coded fallback.
+# No UI input is required.
+# The variable `gemini_key` is no longer used; the app will read `os.getenv('GEMINI_API_KEY')` directly.
 
 # Sidebar footer / Clear Button
 st.sidebar.markdown("---")
@@ -272,7 +267,7 @@ if run_analysis:
             st.session_state['jd_text'] = jd_text
             
             # 3. Call Google Gemini API (if key is set in UI or environment)
-            api_key_to_use = gemini_key.strip() if gemini_key.strip() else os.environ.get("GEMINI_API_KEY", "")
+            api_key_to_use = os.getenv("GEMINI_API_KEY") or "AIzaSyCRG0240vq0T1KNzcQxIAPtir88OTy2Eys"
             
             st.session_state['ai_feedback'] = None
             st.session_state['ai_success'] = False
@@ -327,8 +322,8 @@ if st.session_state.get('analysis_done', False):
         with m_col2:
             st.markdown(f"""
             <div class='metric-card'>
-                <p class='metric-title'>Text Compatibility</p>
-                <p class='metric-value' style='color:#3b82f6;'>{scores['cosine_score']}%</p>
+                 <p class='metric-title'>Word Overlap</p>
+                 <p class='metric-value' style='color:#3b82f6;'>{scores['overlap_score']}%</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -376,8 +371,8 @@ if st.session_state.get('analysis_done', False):
             st.markdown("<h4 style='text-align: center; color:#1e3a8a;'>Score Categories comparison</h4>", unsafe_allow_html=True)
             # Create Bar Chart
             fig_bar, ax_bar = plt.subplots(figsize=(6, 3.5))
-            categories = ['Text Cosine Match', 'Skill Match', 'Keyword Match', 'Weighted ATS']
-            values = [scores['cosine_score'], scores['skill_score'], scores['keyword_score'], scores['ats_score']]
+            categories = ['Word Overlap', 'Skill Match', 'Keyword Match', 'Weighted ATS']
+            values = [scores['overlap_score'], scores['skill_score'], scores['keyword_score'], scores['ats_score']]
             bar_colors = ['#60a5fa', '#c084fc', '#fbbf24', score_color]
             
             bars = ax_bar.barh(categories, values, color=bar_colors, height=0.5)
@@ -575,7 +570,7 @@ if st.session_state.get('analysis_done', False):
             ],
             "Value / Count": [
                 f"{scores['ats_score']}%",
-                f"{scores['cosine_score']}%",
+                f"{scores['overlap_score']}%",
                 f"{scores['skill_score']}%",
                 f"{scores['keyword_score']}%",
                 scores['grade'],

@@ -1,7 +1,5 @@
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import re
-from utils import clean_text, extract_skills, extract_keywords
+from utils import clean_text, extract_skills, extract_keywords, tokenize, remove_stopwords
 
 class ATSScorer:
     def __init__(self, skills_list: list[str]):
@@ -13,7 +11,7 @@ class ATSScorer:
     def calculate_scores(self, resume_text: str, jd_text: str) -> dict:
         """
         Main interface to calculate all ATS-related metrics:
-        - TF-IDF Cosine Similarity
+        - Word Overlap Score
         - Skill Overlap (Matched, Missing, Total, Skill Score)
         - Keyword Overlap (Matched, Missing, Keyword Score)
         - Combined Weighted ATS Score (0-100)
@@ -26,7 +24,7 @@ class ATSScorer:
         # Handle empty fields edge cases
         if not cleaned_resume or not cleaned_jd:
             return {
-                "cosine_score": 0.0,
+                "overlap_score": 0.0,
                 "skill_score": 0.0,
                 "keyword_score": 0.0,
                 "ats_score": 0.0,
@@ -37,12 +35,16 @@ class ATSScorer:
                 "grade": "Needs Improvement"
             }
 
-        # 1. Cosine Similarity using Scikit-Learn TF-IDF
-        # We fit on both texts to build the common vocabulary, then find similarity
-        vectorizer = TfidfVectorizer()
-        tfidf_matrix = vectorizer.fit_transform([cleaned_jd, cleaned_resume])
-        cosine_sim = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-        cosine_score = round(cosine_sim * 100, 2)
+        # 1. Word Overlap Match Score
+        # Tokenize and remove stopwords to extract unique meaningful words
+        resume_tokens = set(remove_stopwords(tokenize(cleaned_resume)))
+        jd_tokens = set(remove_stopwords(tokenize(cleaned_jd)))
+
+        if jd_tokens:
+            overlap_words = jd_tokens.intersection(resume_tokens)
+            overlap_score = round((len(overlap_words) / len(jd_tokens)) * 100, 2)
+        else:
+            overlap_score = 100.0
 
         # 2. Skill Match Analysis
         # Extract skills present in JD
@@ -89,8 +91,8 @@ class ATSScorer:
             keyword_score = 100.0
 
         # 4. Final Weighted ATS Score (0 - 100)
-        # Formula: 40% TF-IDF Cosine Match, 40% Skill Match, 20% Keyword Match
-        ats_score = round((0.4 * cosine_score) + (0.4 * skill_score) + (0.2 * keyword_score), 2)
+        # Formula: 40% Word Overlap Match, 40% Skill Match, 20% Keyword Match
+        ats_score = round((0.4 * overlap_score) + (0.4 * skill_score) + (0.2 * keyword_score), 2)
 
         # Ensure bounds
         ats_score = min(max(ats_score, 0.0), 100.0)
@@ -110,7 +112,7 @@ class ATSScorer:
             grade = "Needs Improvement"
 
         return {
-            "cosine_score": cosine_score,
+            "overlap_score": overlap_score,
             "skill_score": skill_score,
             "keyword_score": keyword_score,
             "ats_score": ats_score,
