@@ -2,8 +2,15 @@ import requests
 import re
 import os
 
-# Key is loaded from environment variable OPENROUTER_API_KEY
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+def _get_api_key():
+    """Read OpenRouter key from Streamlit secrets (cloud) or .env (local)."""
+    try:
+        import streamlit as st
+        return st.secrets.get("OPENROUTER_API_KEY", os.getenv("OPENROUTER_API_KEY", ""))
+    except Exception:
+        return os.getenv("OPENROUTER_API_KEY", "")
+
+OPENROUTER_API_KEY = _get_api_key()
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Free models available on OpenRouter - tried in order
