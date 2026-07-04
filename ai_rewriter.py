@@ -54,15 +54,22 @@ class AIRewriter:
         {jd_text}
         """
 
-        try:
-            # Using gemini-2.0-flash as the fast, efficient recommended model
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
-            )
-            return response.text
-        except Exception as e:
-            raise Exception(f"Failed to generate feedback from Gemini API: {str(e)}")
+        # Try models in order — each has its own free quota pool
+        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash']
+        last_error = None
+        for model in models_to_try:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                return response.text
+            except Exception as e:
+                last_error = e
+                if '429' not in str(e):
+                    # Non-quota error — don't retry other models
+                    break
+        raise Exception(f"Failed to generate feedback from Gemini API: {str(last_error)}")
 
     def rewrite_text(self, text_to_rewrite: str, jd_text: str = "", style: str = "XYZ Formula") -> str:
         """
@@ -88,14 +95,20 @@ class AIRewriter:
         - Provide 2-3 variations of the rewritten text.
         - Do NOT include any introductory or concluding conversational text. Output only the rewritten variations formatted in markdown as a list.
         """
-        try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
-            )
-            return response.text
-        except Exception as e:
-            raise Exception(f"Failed to rewrite text using Gemini API: {str(e)}")
+        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash']
+        last_error = None
+        for model in models_to_try:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                return response.text
+            except Exception as e:
+                last_error = e
+                if '429' not in str(e):
+                    break
+        raise Exception(f"Failed to rewrite text using Gemini API: {str(last_error)}")
 
 
 def parse_gemini_feedback(feedback_text: str) -> dict:
