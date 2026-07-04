@@ -1,79 +1,197 @@
 import requests
 import re
 import os
+import time
+import logging
+
+# Configure module-level logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Free models available on OpenRouter - tried in order
+# ── Currently supported, stable OpenRouter models (tried in order) ─────────────
+# Priority: higher-quality models first, ultra-light free fallbacks last.
+# Remove or add models here as OpenRouter availability changes.
 MODELS_TO_TRY = [
-    "google/gemini-2.0-flash-exp:free",
-    "google/gemini-flash-1.5-8b",
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
+    "google/gemini-2.0-flash-001",               # Stable Gemini 2.0 Flash
+    "google/gemini-flash-1.5",                    # Gemini 1.5 Flash
+    "meta-llama/llama-3.1-8b-instruct:free",      # Llama 3.1 8B (free tier)
+    "mistralai/mistral-7b-instruct:free",          # Mistral 7B (free tier)
+    "microsoft/phi-3-mini-128k-instruct:free",     # Phi-3 Mini (free tier)
 ]
+
+# HTTP status codes that should trigger a retry on the next model
+_RETRYABLE_STATUS_CODES = {404, 429, 500, 502, 503, 504}
+
+# How many times to retry a single model before moving on
+_MAX_RETRIES_PER_MODEL = 1
+
+# Seconds to wait between retries
+_RETRY_DELAY_SECONDS = 2
+
+# Request timeout in seconds
+_REQUEST_TIMEOUT = 60
 
 
 class AIRewriter:
+    """
+    Wraps the OpenRouter chat-completion API.
+
+    Reads the API key from Streamlit secrets (``OPENROUTER_API_KEY``) or the
+    environment variable of the same name.  Call ``generate_feedback()`` or
+    ``rewrite_text()`` to invoke AI features.
+    """
+
     def __init__(self, api_key: str = None):
         """
-        Initializes the AIRewriter using OpenRouter API.
-        Reads the key at runtime so Streamlit secrets are fully loaded.
+        Initialises the AIRewriter.
+
+        Parameters
+        ----------
+        api_key : str, optional
+            Override the API key read from secrets / environment variables.
         """
-        # Read key at runtime - Streamlit secrets are ready by the time this is called
         if api_key:
             self.api_key = api_key
         else:
             try:
                 import streamlit as st
-                self.api_key = st.secrets.get("OPENROUTER_API_KEY", "") or os.getenv("OPENROUTER_API_KEY", "")
+                self.api_key = (
+                    st.secrets.get("OPENROUTER_API_KEY", "")
+                    or os.getenv("OPENROUTER_API_KEY", "")
+                )
             except Exception:
                 self.api_key = os.getenv("OPENROUTER_API_KEY", "")
 
+    # ── Private helpers ────────────────────────────────────────────────────────
+
+    def _validate_api_key(self) -> None:
+        """
+        Raises a descriptive ``ValueError`` when no API key is configured,
+        so callers can catch it and show a friendly Streamlit warning.
+        """
+        if not self.api_key or not self.api_key.strip():
+            raise ValueError(
+                "Please configure your OpenRouter API key in Streamlit Secrets "
+                "(key name: OPENROUTER_API_KEY) or as an environment variable."
+            )
 
     def _call_openrouter(self, prompt: str) -> str:
         """
-        Sends a prompt to OpenRouter, trying multiple free models until one succeeds.
+        Sends ``prompt`` to OpenRouter, cycling through ``MODELS_TO_TRY``.
+
+        Behaviour
+        ---------
+        * Validates the API key before making any network call.
+        * Retries each model ``_MAX_RETRIES_PER_MODEL`` times on transient errors.
+        * Moves to the next model on 404 / 429 / 5xx responses.
+        * Raises an ``Exception`` only after **all** models have been exhausted.
         """
+        self._validate_api_key()
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://ai-resume-analyser.streamlit.app",
-            "X-Title": "AI Resume Analyser"
+            "X-Title": "AI Resume Analyser",
         }
 
-        last_error = None
-        for model in MODELS_TO_TRY:
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}]
-            }
-            try:
-                response = requests.post(
-                    OPENROUTER_BASE_URL,
-                    headers=headers,
-                    json=payload,
-                    timeout=60
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    return data["choices"][0]["message"]["content"]
-                elif response.status_code in (429, 503):
-                    # Quota/rate-limit — try next model
-                    last_error = f"Model {model} returned {response.status_code}"
-                    continue
-                else:
-                    last_error = f"Model {model} returned {response.status_code}: {response.text}"
-                    break
-            except Exception as e:
-                last_error = str(e)
-                continue
+        last_error: str = "No models were attempted."
 
-        raise Exception(f"All models failed. Last error: {last_error}")
+        for model in MODELS_TO_TRY:
+            for attempt in range(1, _MAX_RETRIES_PER_MODEL + 2):  # +2 so range gives 1 & 2
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
+                try:
+                    logger.info("Trying model %s (attempt %d)…", model, attempt)
+                    response = requests.post(
+                        OPENROUTER_BASE_URL,
+                        headers=headers,
+                        json=payload,
+                        timeout=_REQUEST_TIMEOUT,
+                    )
+
+                    # ── Success ───────────────────────────────────────────────
+                    if response.status_code == 200:
+                        data = response.json()
+                        choices = data.get("choices", [])
+                        if not choices:
+                            last_error = f"Model {model} returned an empty 'choices' list."
+                            logger.warning(last_error)
+                            break  # try next model
+
+                        content = choices[0].get("message", {}).get("content", "").strip()
+                        if not content:
+                            last_error = f"Model {model} returned an empty response body."
+                            logger.warning(last_error)
+                            break  # try next model
+
+                        logger.info("Success with model %s.", model)
+                        return content
+
+                    # ── Invalid API key ───────────────────────────────────────
+                    elif response.status_code == 401:
+                        raise ValueError(
+                            "Invalid OpenRouter API key (HTTP 401). "
+                            "Please check your OPENROUTER_API_KEY in Streamlit Secrets."
+                        )
+
+                    # ── Retryable error — try next model ──────────────────────
+                    elif response.status_code in _RETRYABLE_STATUS_CODES:
+                        last_error = (
+                            f"Model {model} returned HTTP {response.status_code}: "
+                            f"{response.text[:200]}"
+                        )
+                        logger.warning(last_error)
+                        if attempt <= _MAX_RETRIES_PER_MODEL:
+                            logger.info("Waiting %ss before retry…", _RETRY_DELAY_SECONDS)
+                            time.sleep(_RETRY_DELAY_SECONDS)
+                            continue  # retry same model
+                        else:
+                            break  # move to next model
+
+                    # ── Unexpected status — log and move on ───────────────────
+                    else:
+                        last_error = (
+                            f"Model {model} returned unexpected HTTP "
+                            f"{response.status_code}: {response.text[:200]}"
+                        )
+                        logger.warning(last_error)
+                        break  # try next model
+
+                # ── Network / timeout errors ──────────────────────────────────
+                except requests.exceptions.Timeout:
+                    last_error = f"Model {model} timed out after {_REQUEST_TIMEOUT}s."
+                    logger.warning(last_error)
+                    break  # try next model
+
+                except requests.exceptions.ConnectionError as exc:
+                    last_error = f"Network error with model {model}: {exc}"
+                    logger.warning(last_error)
+                    break  # try next model
+
+                except ValueError:
+                    # Re-raise auth errors immediately — no point trying other models
+                    raise
+
+                except Exception as exc:
+                    last_error = f"Unexpected error with model {model}: {exc}"
+                    logger.exception(last_error)
+                    break  # try next model
+
+        raise Exception(
+            f"All models failed to return a valid response. Last error: {last_error}"
+        )
+
+    # ── Public API ─────────────────────────────────────────────────────────────
 
     def generate_feedback(self, resume_text: str, jd_text: str) -> str:
         """
-        Sends the Resume and Job Description to an AI model via OpenRouter.
-        Prompts the model to return 5 distinct, numbered headers in markdown format.
+        Analyses the resume against the job description and returns structured
+        markdown feedback with five numbered sections.
         """
         prompt = f"""
         You are an expert tech recruiter and resume optimizer. 
@@ -112,9 +230,12 @@ class AIRewriter:
         """
         return self._call_openrouter(prompt)
 
-    def rewrite_text(self, text_to_rewrite: str, jd_text: str = "", style: str = "XYZ Formula") -> str:
+    def rewrite_text(
+        self, text_to_rewrite: str, jd_text: str = "", style: str = "XYZ Formula"
+    ) -> str:
         """
-        Rewrites a specific bullet point or section of a resume based on the JD and selected style.
+        Rewrites a specific bullet point or section of a resume based on the
+        job description and the selected style.
         """
         prompt = f"""
         You are an expert resume writer and career coach.
@@ -139,24 +260,32 @@ class AIRewriter:
         return self._call_openrouter(prompt)
 
 
+# ── Parsing helper ─────────────────────────────────────────────────────────────
+
 def parse_gemini_feedback(feedback_text: str) -> dict:
     """
-    Parses the Markdown response into five distinct parts
-    for display in Streamlit tabs or expanders.
-    Uses regex splitting based on markdown headers.
+    Parses the AI markdown response into five distinct sections for display
+    in Streamlit tabs or expanders.  Uses regex splitting on numbered headers.
+
+    Returns
+    -------
+    dict
+        Keys: ``suggestions``, ``summary``, ``bullets``, ``interview``, ``career``.
+        If the response does not contain all five sections, the raw text is
+        placed in ``suggestions`` and the remaining keys are empty strings.
     """
     sections = {
         "suggestions": "",
         "summary": "",
         "bullets": "",
         "interview": "",
-        "career": ""
+        "career": "",
     }
 
-    # Split by standard headers: # 1., # 2., etc. or ## 1., ## 2.
-    parts = re.split(r'#+\s+\d+\.\s+', feedback_text)
-    
-    # parts[0] is everything before "# 1. " (often empty or preamble)
+    # Split by numbered markdown headers: # 1., # 2., ## 1., ## 2., etc.
+    parts = re.split(r"#+\s+\d+\.\s+", feedback_text)
+
+    # parts[0] is everything before the first numbered header (often empty/preamble)
     if len(parts) >= 6:
         sections["suggestions"] = parts[1].strip()
         sections["summary"] = parts[2].strip()
@@ -164,8 +293,7 @@ def parse_gemini_feedback(feedback_text: str) -> dict:
         sections["interview"] = parts[4].strip()
         sections["career"] = parts[5].strip()
     else:
-        # If parsing fails because model output structure differed,
-        # put the whole response in the first tab and leave others empty
+        # Fallback: show the whole response in the first tab
         sections["suggestions"] = feedback_text
-        
+
     return sections

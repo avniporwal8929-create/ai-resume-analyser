@@ -198,9 +198,8 @@ uploaded_file = st.sidebar.file_uploader(
     help="Supported formats: PDF, DOCX, TXT. Scanned PDFs are not supported."
 )
 
-# Gemini API key is provided via environment variable `GEMINI_API_KEY` or a hard‑coded fallback.
-# No UI input is required.
-# The variable `gemini_key` is no longer used; the app will read `os.getenv('GEMINI_API_KEY')` directly.
+# AI suggestions are powered by OpenRouter (OPENROUTER_API_KEY).
+# Configure the key in Streamlit Secrets or as an environment variable — no UI input required.
 
 # Sidebar footer / Clear Button
 st.sidebar.markdown("---")
@@ -222,9 +221,8 @@ with input_col1:
     st.markdown("""
     1. **Upload Resume**: In the sidebar, select your Resume in `.pdf`, `.docx`, or `.txt` format.
     2. **Paste Job Description**: Paste the target Job Description in the text area on the right.
-    3. **Set API Key (Optional)**: Provide a Gemini API key in the sidebar for AI improvement reviews and interview prep.
-    4. **Analyze**: Click the **Analyze Resume** button to run calculations.
-    5. **Review Results**: Use the interactive tabs to explore matching keywords, charts, and downloadable reports.
+    3. **Analyze**: Click the **Analyze Resume** button to run calculations.
+    4. **Review Results**: Use the interactive tabs to explore matching keywords, charts, AI suggestions, and downloadable reports.
     """)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -496,7 +494,7 @@ if st.session_state.get('analysis_done', False):
             
             st.markdown("<div class='section-card'>", unsafe_allow_html=True)
             st.markdown("### 🤖 Generative AI Insights")
-            st.write("Gemini has parsed your resume and generated recommendations targeted specifically for this Job Description.")
+            st.write("The AI has analysed your resume and generated recommendations targeted specifically for this Job Description.")
             st.markdown("</div>", unsafe_allow_html=True)
             
             # Show sections in expandable items
